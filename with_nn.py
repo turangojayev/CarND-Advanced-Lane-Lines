@@ -42,7 +42,6 @@ dst = numpy.float32([[100, 710],
                      [1180, 10],
                      [1180, 710]])
 
-
 perspective_tr_matrix = cv2.getPerspectiveTransform(src, dst)
 inverse_perspective_tr_matrix = cv2.getPerspectiveTransform(dst, src)
 RGB = ['Red', 'Green', 'Blue']
@@ -302,7 +301,7 @@ class Pipeline(object):
     def __init__(self):
         self.camera_matrix, self.distortion_coefs = get_calibration_results()
         # self._binary_model = build_model((720, 1280, 3))
-        self._binary_model = keras.models.load_model('model2.h5',
+        self._binary_model = keras.models.load_model('model.h5',
                                                      custom_objects={'BilinearUpSampling2D': BilinearUpSampling2D})
 
     def __call__(self, image, **kwargs):
@@ -334,7 +333,7 @@ class Pipeline(object):
         # out = numpy.zeros_like(white_color)
         # out[(white_color != 0) | (yellow_color != 0)] = 1
         # return out
-        image = cv2.cvtColor(image, cv2.COLOR_RGB2YUV)
+        # image = cv2.cvtColor(image, cv2.COLOR_RGB2YUV)
         result = self._binary_model.predict(image.reshape(1, *image.shape)).squeeze() * 255
         result = result.astype(numpy.uint8)
         result = cv2.adaptiveThreshold(result, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 0)
@@ -476,12 +475,16 @@ class Pipeline(object):
         closest_point_difference = right_fitx[-1] - left_fitx[-1]
         if closest_point_difference > 0:
             differences = right_fitx - left_fitx
-            acceptable = differences > 0.6 * closest_point_difference
+            # acceptable = differences > 0.6 * closest_point_difference
+            # acceptable = differences > 0.8 * closest_point_difference
+            acceptable = differences > 0.7 * closest_point_difference
             start = numpy.argmax(acceptable)
             # print(closest_point_difference, differences[0])
             print(self.start)
             self.start += int(0.1 * (start - self.start))
-            self._update_curves(left_fit, right_fit)
+            # if right_fit[2] - left_fit[2] > 400:
+            if right_fit[2] - left_fit[2] > 350:
+                self._update_curves(left_fit, right_fit)
             ploty = ploty[self.start:]
 
         left_fitx = self.left_fit[0] * ploty ** 2 + self.left_fit[1] * ploty + self.left_fit[2]
@@ -530,7 +533,7 @@ if __name__ == '__main__':
     # video_files = ['challenge_video.mp4']
 
     for video in video_files:
-        process_and_save_video(video, os.path.join('output_videos', video), Pipeline())
+        process_and_save_video(video, os.path.join('output_videos', 'next-' + video), Pipeline())
 
 
         # image_names = glob.glob('test_images/straight*')
