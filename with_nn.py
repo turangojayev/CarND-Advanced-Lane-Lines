@@ -3,7 +3,21 @@ from functools import partial
 
 import cv2
 import os
+
 import numpy
+import tensorflow as tf
+from keras import losses
+from keras import optimizers
+from keras.callbacks import ModelCheckpoint
+from keras.engine import Model
+from keras.layers import *
+from sklearn.utils import shuffle
+
+import keras
+import numpy
+from keras import Input, optimizers
+from keras.engine import Model
+from keras.layers import Lambda, Conv2D, MaxPooling2D, Dropout
 from matplotlib import pyplot as plt
 from matplotlib import image as mpimg
 from moviepy.video.io.VideoFileClip import VideoFileClip
@@ -171,34 +185,157 @@ def gradient(image, low, high):
     return binary
 
 
+def build_model(input_shape=None):
+    img_input = Input(shape=input_shape)
+    x = Lambda(lambda x: (x - 127.) / 128)(img_input)
+    x = Conv2D(32, (3, 3), activation='relu')(x)
+    x = MaxPooling2D((3, 3), (3, 3))(x)
+    x = Conv2D(64, (3, 3), activation='relu')(x)
+    x = MaxPooling2D((2, 2), (2, 2))(x)
+    x = Dropout(0.7)(x)
+    x = Conv2D(128, (3, 3), activation='relu')(x)
+    x = MaxPooling2D((2, 2), (2, 2))(x)
+    x = Dropout(0.7)(x)
+    x = Conv2D(1, (5, 5), activation='sigmoid')(x)
+    x = BilinearUpSampling2D(target_size=(720, 1280))(x)
+    model = Model(img_input, x)
+    # model.compile(optimizer=optimizers.adam(0.001), loss='binary_crossentropy')
+    return model
+
+
+def resize_images_bilinear(X, height_factor=1, width_factor=1, target_height=None, target_width=None,
+                           data_format='default'):
+    '''Resizes the images contained in a 4D tensor of shape
+    - [batch, channels, height, width] (for 'channels_first' data_format)
+    - [batch, height, width, channels] (for 'channels_last' data_format)
+    by a factor of (height_factor, width_factor). Both factors should be
+    positive integers.
+    '''
+    if data_format == 'default':
+        data_format = K.image_data_format()
+    if data_format == 'channels_first':
+        original_shape = K.int_shape(X)
+        if target_height and target_width:
+            new_shape = tf.constant(numpy.array((target_height, target_width)).astype('int32'))
+        else:
+            new_shape = tf.shape(X)[2:]
+            new_shape *= tf.constant(numpy.array([height_factor, width_factor]).astype('int32'))
+        X = K.permute_dimensions(X, [0, 2, 3, 1])
+        X = tf.image.resize_bilinear(X, new_shape)
+        X = K.permute_dimensions(X, [0, 3, 1, 2])
+        if target_height and target_width:
+            X.set_shape((None, None, target_height, target_width))
+        else:
+            X.set_shape((None, None, original_shape[2] * height_factor, original_shape[3] * width_factor))
+        return X
+    elif data_format == 'channels_last':
+        original_shape = K.int_shape(X)
+        if target_height and target_width:
+            new_shape = tf.constant(numpy.array((target_height, target_width)).astype('int32'))
+        else:
+            new_shape = tf.shape(X)[1:3]
+            new_shape *= tf.constant(numpy.array([height_factor, width_factor]).astype('int32'))
+        X = tf.image.resize_bilinear(X, new_shape)
+        if target_height and target_width:
+            X.set_shape((None, target_height, target_width, None))
+        else:
+            X.set_shape((None, original_shape[1] * height_factor, original_shape[2] * width_factor, None))
+        return X
+    else:
+        raise Exception('Invalid data_format: ' + data_format)
+
+
+class BilinearUpSampling2D(Layer):
+    def __init__(self, size=(1, 1), target_size=None, data_format='default', **kwargs):
+        if data_format == 'default':
+            data_format = K.image_data_format()
+        self.size = tuple(size)
+        if target_size is not None:
+            self.target_size = tuple(target_size)
+        else:
+            self.target_size = None
+        assert data_format in {'channels_last', 'channels_first'}, 'data_format must be in {tf, th}'
+        self.data_format = data_format
+        self.input_spec = [InputSpec(ndim=4)]
+        super(BilinearUpSampling2D, self).__init__(**kwargs)
+
+    def compute_output_shape(self, input_shape):
+        if self.data_format == 'channels_first':
+            width = int(self.size[0] * input_shape[2] if input_shape[2] is not None else None)
+            height = int(self.size[1] * input_shape[3] if input_shape[3] is not None else None)
+            if self.target_size is not None:
+                width = self.target_size[0]
+                height = self.target_size[1]
+            return (input_shape[0],
+                    input_shape[1],
+                    width,
+                    height)
+        elif self.data_format == 'channels_last':
+            width = int(self.size[0] * input_shape[1] if input_shape[1] is not None else None)
+            height = int(self.size[1] * input_shape[2] if input_shape[2] is not None else None)
+            if self.target_size is not None:
+                width = self.target_size[0]
+                height = self.target_size[1]
+            return (input_shape[0],
+                    width,
+                    height,
+                    input_shape[3])
+        else:
+            raise Exception('Invalid data_format: ' + self.data_format)
+
+    def call(self, x, mask=None):
+        if self.target_size is not None:
+            return resize_images_bilinear(x, target_height=self.target_size[0], target_width=self.target_size[1],
+                                          data_format=self.data_format)
+        else:
+            return resize_images_bilinear(x, height_factor=self.size[0], width_factor=self.size[1],
+                                          data_format=self.data_format)
+
+    def get_config(self):
+        config = {'size': self.size, 'target_size': self.target_size}
+        base_config = super(BilinearUpSampling2D, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
 class Pipeline(object):
     def __init__(self):
         self.camera_matrix, self.distortion_coefs = get_calibration_results()
+        # self._binary_model = build_model((720, 1280, 3))
+        self._binary_model = keras.models.load_model('model.h5',
+                                                     custom_objects={'BilinearUpSampling2D': BilinearUpSampling2D})
 
     def __call__(self, image, **kwargs):
         undistorted = undistort(image, self.camera_matrix, self.distortion_coefs, None, None)
-        yuv = cv2.cvtColor(undistorted, cv2.COLOR_RGB2YUV)
-        yellow_color = cv2.inRange(yuv[:, :, 1], array([0]), array([115]))
-        yellow_color[yellow_color != 0] = 1
-
-        hls = cv2.cvtColor(undistorted, cv2.COLOR_RGB2HLS)
-        white_color = cv2.inRange(hls, array([0, 200, 0]), array([255, 255, 255]))
-        white_color[white_color != 0] = 1
-
-        out = numpy.zeros_like(white_color)
-        out[(white_color != 0) | (yellow_color != 0)] = 1
-
-        warped = perspective_transform(out, perspective_tr_matrix)
+        warped = perspective_transform(undistorted, perspective_tr_matrix)
+        warped_binary = self._get_thresholded(warped)
 
         if hasattr(self, 'left_fit'):
-            lines_drawn = self._continue_from_last(warped)
+            lines_drawn = self._continue_from_last(warped_binary)
         else:
-            lines_drawn = self._detect_lines(warped)
+            lines_drawn = self._detect_lines(warped_binary)
         unwarped_lines = perspective_transform(lines_drawn, inverse_perspective_tr_matrix)
 
         return cv2.addWeighted(undistorted, 1, unwarped_lines, 0.5, 0)
         # return perspective_transform(undistorted, perspective_tr_matrix), self.left_fit, self.right_fit
 
+    def _get_thresholded(self, image):
+        # yuv = cv2.cvtColor(image, cv2.COLOR_RGB2YUV)
+        # yellow_color = cv2.inRange(yuv[:, :, 1], array([0]), array([115]))
+        # yellow_color[yellow_color != 0] = 1
+        #
+        # hls = cv2.cvtColor(image, cv2.COLOR_RGB2HLS)
+        # white_color = cv2.inRange(hls, array([0, 200, 0]), array([255, 255, 255]))
+        # white_color[white_color != 0] = 1
+        #
+        # out = numpy.zeros_like(white_color)
+        # out[(white_color != 0) | (yellow_color != 0)] = 1
+        # return out
+        result = self._binary_model.predict(image.reshape(1, *image.shape)).squeeze() * 255
+        # plt.imshow(result)
+        # plt.show()
+        result = result.astype(numpy.uint8)
+        result = cv2.adaptiveThreshold(result, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 0)
+        return result / 255
 
     def _detect_lines(self, warped_binary):
         out = numpy.dstack((warped_binary, warped_binary, warped_binary)) * 255
@@ -220,7 +357,7 @@ class Pipeline(object):
         leftx_current = leftx_base
         rightx_current = rightx_base
         # Set the width of the windows +/- margin
-        margin = 100
+        margin = 60
         # Set minimum number of pixels found to recenter window
         minpix = 30
         # Create empty lists to receive left and right lane pixel indices
@@ -308,33 +445,31 @@ class Pipeline(object):
         nonzero = warped_binary.nonzero()
         nonzeroy = numpy.array(nonzero[0])
         nonzerox = numpy.array(nonzero[1])
-        margin = 100
-        left_lane_inds = ((nonzerox > (self.left_fit[0] * (nonzeroy ** 2) + self.left_fit[1] * nonzeroy +
-                                       self.left_fit[2] - margin)) & (nonzerox < (self.left_fit[0] * (nonzeroy ** 2) +
-                                                                                  self.left_fit[1] * nonzeroy +
-                                                                                  self.left_fit[2] + margin)))
+        margin = 60
 
-        right_lane_inds = ((nonzerox > (self.right_fit[0] * (nonzeroy ** 2) + self.right_fit[1] * nonzeroy +
-                                        self.right_fit[2] - margin)) & (
-                               nonzerox < (self.right_fit[0] * (nonzeroy ** 2) +
-                                           self.right_fit[1] * nonzeroy +
-                                           self.right_fit[2] + margin)))
+        old_leftx = self.left_fit[0] * (nonzeroy ** 2) + self.left_fit[1] * nonzeroy + self.left_fit[2]
+        left_lane_inds = ((nonzerox > (old_leftx - margin)) & (nonzerox < (old_leftx + margin)))
+
+        old_rightx = self.right_fit[0] * (nonzeroy ** 2) + self.right_fit[1] * nonzeroy + self.right_fit[2]
+        right_lane_inds = ((nonzerox > (old_rightx - margin)) & (nonzerox < (old_rightx + margin)))
 
         # Again, extract left and right line pixel positions
         leftx = nonzerox[left_lane_inds]
         lefty = nonzeroy[left_lane_inds]
+
         rightx = nonzerox[right_lane_inds]
         righty = nonzeroy[right_lane_inds]
         # Fit a second order polynomial to each
-        left_fit = numpy.polyfit(lefty, leftx, 2)
-        right_fit = numpy.polyfit(righty, rightx, 2)
+
+        left_fit = numpy.polyfit(lefty, leftx, 2) if len(leftx) > 0 else self.left_fit
+
+        right_fit = numpy.polyfit(righty, rightx, 2) if len(rightx) > 0 else self.right_fit
         self._update(left_fit, right_fit)
 
         # Generate x and y values for plotting
         ploty = numpy.linspace(0, warped_binary.shape[0] - 1, warped_binary.shape[0])
         left_fitx = self.left_fit[0] * ploty ** 2 + self.left_fit[1] * ploty + self.left_fit[2]
         right_fitx = self.right_fit[0] * ploty ** 2 + self.right_fit[1] * ploty + self.right_fit[2]
-
 
         out = numpy.dstack((warped_binary, warped_binary, warped_binary)) * 255
         out[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
@@ -365,7 +500,7 @@ class Pipeline(object):
         return color_warp
 
     def _update(self, left_fit, right_fit):
-        alpha = 0.4
+        alpha = 0.2
         self.left_fit += alpha * (left_fit - self.left_fit)
         self.right_fit += alpha * (right_fit - self.right_fit)
 
@@ -375,7 +510,8 @@ def perspective_transform(image, matrix):
 
 
 if __name__ == '__main__':
-    video_files = ['project_video.mp4', 'harder_challenge_video.mp4', 'challenge_video.mp4']
+    # video_files = ['project_video.mp4', 'harder_challenge_video.mp4', 'challenge_video.mp4']
+    video_files = ['harder_challenge_video.mp4', 'challenge_video.mp4']
     # video_files = ['challenge_video.mp4']
     # video_files = ['challenge_video.mp4']
 
