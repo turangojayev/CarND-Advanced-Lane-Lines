@@ -31,7 +31,7 @@ columns = 1280
 # src = numpy.float32([[0, rows], [568, 453], [715, 453], [columns, rows]])
 # src = numpy.float32([[0, rows], [568, 453], [720, 453], [columns, rows]])
 # dst = numpy.float32([[0, rows], [0, 0], [columns, 0], [columns, rows]])
-
+#
 src = numpy.float32([[0, 700],
                      [515, 472],
                      [764, 472.],
@@ -41,6 +41,7 @@ dst = numpy.float32([[100, 710],
                      [100, 10],
                      [1180, 10],
                      [1180, 710]])
+
 
 perspective_tr_matrix = cv2.getPerspectiveTransform(src, dst)
 inverse_perspective_tr_matrix = cv2.getPerspectiveTransform(dst, src)
@@ -301,7 +302,7 @@ class Pipeline(object):
     def __init__(self):
         self.camera_matrix, self.distortion_coefs = get_calibration_results()
         # self._binary_model = build_model((720, 1280, 3))
-        self._binary_model = keras.models.load_model('model.h5',
+        self._binary_model = keras.models.load_model('model2.h5',
                                                      custom_objects={'BilinearUpSampling2D': BilinearUpSampling2D})
 
     def __call__(self, image, **kwargs):
@@ -316,7 +317,10 @@ class Pipeline(object):
         unwarped_lines = perspective_transform(lines_drawn, inverse_perspective_tr_matrix)
 
         return cv2.addWeighted(undistorted, 1, unwarped_lines, 0.5, 0)
+
         # return perspective_transform(undistorted, perspective_tr_matrix), self.left_fit, self.right_fit
+
+        # return numpy.dstack((warped_binary, warped_binary, warped_binary)) * 255
 
     def _get_thresholded(self, image):
         # yuv = cv2.cvtColor(image, cv2.COLOR_RGB2YUV)
@@ -330,9 +334,8 @@ class Pipeline(object):
         # out = numpy.zeros_like(white_color)
         # out[(white_color != 0) | (yellow_color != 0)] = 1
         # return out
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2YUV)
         result = self._binary_model.predict(image.reshape(1, *image.shape)).squeeze() * 255
-        # plt.imshow(result)
-        # plt.show()
         result = result.astype(numpy.uint8)
         result = cv2.adaptiveThreshold(result, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 0)
         return result / 255
@@ -413,20 +416,20 @@ class Pipeline(object):
         left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
         right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
 
-        out[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
-        out[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
+        self.closest_line_difference = right_fitx[-1] - left_fitx[-1]
+        self.start = 0
 
-        leftfitx = left_fitx.astype(numpy.int32)
-        rightfix = right_fitx.astype(numpy.int32)
-        ycoord = ploty.astype(numpy.int32)
-
-        # cv2.polylines(out, array(list(zip(leftfitx, ycoord))).reshape(-1, 1, 2), True, (200, 200, 200), thickness=5)
-        # cv2.polylines(out, array(list(zip(rightfix, ycoord))).reshape(-1, 1, 2), True, (200, 200, 200), thickness=5)
-
-        output = numpy.zeros_like(out)
-
-        cv2.polylines(output, array(list(zip(leftfitx, ycoord))).reshape(-1, 1, 2), True, (0, 255, 0), thickness=25)
-        cv2.polylines(output, array(list(zip(rightfix, ycoord))).reshape(-1, 1, 2), True, (0, 255, 0), thickness=25)
+        # out[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
+        # out[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
+        #
+        # leftfitx = left_fitx.astype(numpy.int32)
+        # rightfix = right_fitx.astype(numpy.int32)
+        # ycoord = ploty.astype(numpy.int32)
+        #
+        # output = numpy.zeros_like(out)
+        #
+        # cv2.polylines(output, array(list(zip(leftfitx, ycoord))).reshape(-1, 1, 2), True, (0, 255, 0), thickness=25)
+        # cv2.polylines(output, array(list(zip(rightfix, ycoord))).reshape(-1, 1, 2), True, (0, 255, 0), thickness=25)
         # return output
 
         warp_zero = numpy.zeros_like(warped_binary).astype(numpy.uint8)
@@ -459,32 +462,43 @@ class Pipeline(object):
 
         rightx = nonzerox[right_lane_inds]
         righty = nonzeroy[right_lane_inds]
-        # Fit a second order polynomial to each
 
         left_fit = numpy.polyfit(lefty, leftx, 2) if len(leftx) > 0 else self.left_fit
-
         right_fit = numpy.polyfit(righty, rightx, 2) if len(rightx) > 0 else self.right_fit
-        self._update(left_fit, right_fit)
 
-        # Generate x and y values for plotting
         ploty = numpy.linspace(0, warped_binary.shape[0] - 1, warped_binary.shape[0])
+        # left_fitx = self.left_fit[0] * ploty ** 2 + self.left_fit[1] * ploty + self.left_fit[2]
+        # right_fitx = self.right_fit[0] * ploty ** 2 + self.right_fit[1] * ploty + self.right_fit[2]
+
+        left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
+        right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
+
+        closest_point_difference = right_fitx[-1] - left_fitx[-1]
+        if closest_point_difference > 0:
+            differences = right_fitx - left_fitx
+            acceptable = differences > 0.6 * closest_point_difference
+            start = numpy.argmax(acceptable)
+            # print(closest_point_difference, differences[0])
+            print(self.start)
+            self.start += int(0.1 * (start - self.start))
+            self._update_curves(left_fit, right_fit)
+            ploty = ploty[self.start:]
+
         left_fitx = self.left_fit[0] * ploty ** 2 + self.left_fit[1] * ploty + self.left_fit[2]
         right_fitx = self.right_fit[0] * ploty ** 2 + self.right_fit[1] * ploty + self.right_fit[2]
 
-        out = numpy.dstack((warped_binary, warped_binary, warped_binary)) * 255
-        out[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
-        out[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
-
-        leftfitx = left_fitx.astype(numpy.int32)
-        rightfix = right_fitx.astype(numpy.int32)
-        ycoord = ploty.astype(numpy.int32)
-
-        # cv2.polylines(out, array(list(zip(leftfitx, ycoord))).reshape(-1, 1, 2), True, (200, 200, 200), thickness=5)
-        # cv2.polylines(out, array(list(zip(rightfix, ycoord))).reshape(-1, 1, 2), True, (200, 200, 200), thickness=5)
-        output = numpy.zeros_like(out)
-
-        cv2.polylines(output, array(list(zip(leftfitx, ycoord))).reshape(-1, 1, 2), True, (0, 255, 0), thickness=25)
-        cv2.polylines(output, array(list(zip(rightfix, ycoord))).reshape(-1, 1, 2), True, (0, 255, 0), thickness=25)
+        # out = numpy.dstack((warped_binary, warped_binary, warped_binary)) * 255
+        # out[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
+        # out[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
+        #
+        # leftfitx = left_fitx.astype(numpy.int32)
+        # rightfix = right_fitx.astype(numpy.int32)
+        # ycoord = ploty.astype(numpy.int32)
+        #
+        # output = numpy.zeros_like(out)
+        #
+        # cv2.polylines(output, array(list(zip(leftfitx, ycoord))).reshape(-1, 1, 2), True, (0, 255, 0), thickness=25)
+        # cv2.polylines(output, array(list(zip(rightfix, ycoord))).reshape(-1, 1, 2), True, (0, 255, 0), thickness=25)
         # return output
 
         warp_zero = numpy.zeros_like(warped_binary).astype(numpy.uint8)
@@ -499,7 +513,7 @@ class Pipeline(object):
         cv2.fillPoly(color_warp, numpy.int_([pts]), (0, 255, 0))
         return color_warp
 
-    def _update(self, left_fit, right_fit):
+    def _update_curves(self, left_fit, right_fit):
         alpha = 0.2
         self.left_fit += alpha * (left_fit - self.left_fit)
         self.right_fit += alpha * (right_fit - self.right_fit)
@@ -510,8 +524,8 @@ def perspective_transform(image, matrix):
 
 
 if __name__ == '__main__':
-    # video_files = ['project_video.mp4', 'harder_challenge_video.mp4', 'challenge_video.mp4']
-    video_files = ['harder_challenge_video.mp4', 'challenge_video.mp4']
+    video_files = ['project_video.mp4', 'harder_challenge_video.mp4', 'challenge_video.mp4']
+    # video_files = ['harder_challenge_video.mp4', 'challenge_video.mp4']
     # video_files = ['challenge_video.mp4']
     # video_files = ['challenge_video.mp4']
 
