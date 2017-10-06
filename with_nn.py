@@ -475,14 +475,9 @@ class Pipeline(object):
         closest_point_difference = right_fitx[-1] - left_fitx[-1]
         if closest_point_difference > 0:
             differences = right_fitx - left_fitx
-            # acceptable = differences > 0.6 * closest_point_difference
-            # acceptable = differences > 0.8 * closest_point_difference
             acceptable = differences > 0.7 * closest_point_difference
             start = numpy.argmax(acceptable)
-            # print(closest_point_difference, differences[0])
-            print(self.start)
             self.start += int(0.1 * (start - self.start))
-            # if right_fit[2] - left_fit[2] > 400:
             if right_fit[2] - left_fit[2] > 350:
                 self._update_curves(left_fit, right_fit)
             ploty = ploty[self.start:]
@@ -528,10 +523,6 @@ def perspective_transform(image, matrix):
 
 if __name__ == '__main__':
     video_files = ['project_video.mp4', 'harder_challenge_video.mp4', 'challenge_video.mp4']
-    # video_files = ['harder_challenge_video.mp4', 'challenge_video.mp4']
-    # video_files = ['challenge_video.mp4']
-    # video_files = ['challenge_video.mp4']
-
     for video in video_files:
         process_and_save_video(video, os.path.join('output_videos', 'next-' + video), Pipeline())
 
