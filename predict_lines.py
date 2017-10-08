@@ -55,7 +55,7 @@ def resize_images_bilinear(X, height_factor=1, width_factor=1, target_height=Non
         raise Exception('Invalid data_format: ' + data_format)
 
 
-class BilinearUpSampling2D(Layer):
+class Upsampling(Layer):
     def __init__(self, size=(1, 1), target_size=None, data_format='default', **kwargs):
         if data_format == 'default':
             data_format = K.image_data_format()
@@ -67,7 +67,7 @@ class BilinearUpSampling2D(Layer):
         assert data_format in {'channels_last', 'channels_first'}, 'data_format must be in {tf, th}'
         self.data_format = data_format
         self.input_spec = [InputSpec(ndim=4)]
-        super(BilinearUpSampling2D, self).__init__(**kwargs)
+        super(Upsampling, self).__init__(**kwargs)
 
     def compute_output_shape(self, input_shape):
         if self.data_format == 'channels_first':
@@ -103,7 +103,7 @@ class BilinearUpSampling2D(Layer):
 
     def get_config(self):
         config = {'size': self.size, 'target_size': self.target_size}
-        base_config = super(BilinearUpSampling2D, self).get_config()
+        base_config = super(Upsampling, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
 
@@ -120,7 +120,7 @@ def model1(input_shape=None):
     x = MaxPooling2D((2, 2), (2, 2))(x)
     # x = Conv2D(192, (3, 3), activation='relu')(x)
     x = Conv2D(1, (1, 1), activation='sigmoid')(x)
-    x = BilinearUpSampling2D(target_size=(720, 1280))(x)
+    x = Upsampling(target_size=(720, 1280))(x)
     model = Model(img_input, x)
 
     return model
@@ -138,8 +138,8 @@ def model2(input_shape=None):
     x = MaxPooling2D((2, 2), (2, 2))(x)
     x = Dropout(0.7)(x)
     # x = Conv2D(192, (3, 3), activation='relu')(x)
-    x = Conv2D(1, (5, 5), activation='sigmoid')(x)
-    x = BilinearUpSampling2D(target_size=(720, 1280))(x)
+    x = Conv2D(1, (3, 3), activation='sigmoid')(x)
+    x = Upsampling(target_size=(720, 1280))(x)
     model = Model(img_input, x)
 
     return model
@@ -167,6 +167,7 @@ def get_data():
 
 
 uniform = numpy.random.uniform
+
 
 
 def shadow(image):
@@ -220,9 +221,12 @@ if __name__ == '__main__':
     model.summary()
 
     input_image_names = glob.glob('line_detection_data/input/*.jpg')
-    output_image_names = glob.glob('line_detection_data/output/*.jpg')
+    output_image_names = glob.glob('line_detection_data/output2/*.jpg')
 
-    checkpoint = ModelCheckpoint('model.h5', monitor='val_loss', verbose=0, save_best_only=True, mode='auto', period=1)
+    model_name = 'model4.h5'
+
+    # checkpoint = ModelCheckpoint('model.h5', monitor='val_loss', verbose=0, save_best_only=True, mode='auto', period=1)
+    checkpoint = ModelCheckpoint(model_name, monitor='val_loss', verbose=0, save_best_only=True, mode='auto', period=1)
 
     batch_size = 8
     validation_size = 200
@@ -233,17 +237,19 @@ if __name__ == '__main__':
                                     batch_size)
     model.fit_generator(train_generator,
                         steps_per_epoch=len(input_image_names[:-validation_size]) / batch_size,
-                        epochs=7,
+                        epochs=20,
                         callbacks=[checkpoint],
                         validation_data=valid_generator,
                         validation_steps=validation_size / batch_size)
+
+    model = keras.models.load_model(model_name, custom_objects={'Upsampling': Upsampling})
 
     test_images = glob.glob('test_images/challenge*')
     test_images.extend(glob.glob('test_images/harder*'))
     print(test_images[1])
     test_images = list(map(lambda x: cv2.cvtColor(cv2.imread(x), cv2.COLOR_BGR2RGB), test_images))
     undistorted = list(map(lambda x: undistort(x, camera_matrix, distortion_coefs, None, None), test_images))
-    test_images = list(map(perspective_transform, undistorted))
+    test_images = list(map(lambda x: perspective_transform(x, perspective_tr_matrix), undistorted))
 
     # plt.imshow(test_images[1], cmap='gray')
     # plt.show()
