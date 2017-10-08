@@ -70,7 +70,7 @@ if __name__ == '__main__':
     input_image_names = glob.glob('line_detection_data/input/*.jpg')
     output_image_names = glob.glob('line_detection_data/output/*.jpg')
 
-    model_name = 'model4.h5'
+    model_name = 'model.h5'
 
     checkpoint = ModelCheckpoint(model_name, monitor='val_loss', verbose=0, save_best_only=True, mode='auto', period=1)
 

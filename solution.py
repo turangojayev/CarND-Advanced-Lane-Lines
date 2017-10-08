@@ -296,7 +296,7 @@ def _draw_polygon(y, left_x, right_x, shape):
 
 
 class Pipeline:
-    def __init__(self, debug=None, model='model2.h5'):
+    def __init__(self, model=None, debug=None):
         self.camera_matrix, self.distortion_coefs = get_calibration_results()
         self._binary_model = keras.models.load_model(model, custom_objects={'Upsampling': Upsampling})
         self._lines = Lines()
@@ -375,7 +375,7 @@ if __name__ == '__main__':
     # video_files = ['harder_challenge_video.mp4', 'challenge_video.mp4']
     # video_files = ['challenge_video.mp4']
     for video in video_files:
-        process_and_save_video(video, os.path.join('output_videos', 'cnn-' + video), Pipeline(model='model4.h5'))
+        process_and_save_video(video, os.path.join('output_videos', 'cnn-' + video), Pipeline(model='model.h5'))
         #
         #
         # image_names = glob.glob('test_images/straight*')
