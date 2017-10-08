@@ -25,6 +25,12 @@ dst = numpy.float32([[100, 710],
                      [1180, 10],
                      [1180, 710]])
 
+font = cv2.FONT_HERSHEY_SIMPLEX
+position = (10, 100)
+fontScale = 1
+fontColor = (0, 0, 255)
+lineType = 2
+
 perspective_tr_matrix = cv2.getPerspectiveTransform(src, dst)
 inverse_perspective_tr_matrix = cv2.getPerspectiveTransform(dst, src)
 RGB = ['Red', 'Green', 'Blue']
@@ -53,8 +59,7 @@ def get_calibration_results(rows=ROWS, columns=COLUMNS):
     return_value, camera_matrix, distortion_coefs, rotation_vectors, translation_vectors = \
         cv2.calibrateCamera(object_points, image_points, test_image.shape[:2], None, None)
     # cv2.calibrateCamera(object_points, image_points, test_image.shape[::-1][:2], None, None)
-    # TODO:or the one below?
-    #     cv2.calibrateCamera(object_points, image_points, test_image.shape[:2], None, None)
+
 
     return camera_matrix, distortion_coefs
 
@@ -135,8 +140,6 @@ def plot_for_line(images,
 def resize_images_bilinear(X, target_height=None, target_width=None):
     '''Resizes the images contained in a 4D tensor of shape
     - [batch, height, width, channels]
-    by a factor of (height_factor, width_factor). Both factors should be
-    positive integers.
     '''
     new_shape = tf.constant(np.array((target_height, target_width)).astype('int32'))
     X = tf.image.resize_bilinear(X, new_shape)
@@ -166,7 +169,7 @@ class Upsampling(Layer):
 
 
 class Lines:
-    def __init__(self, margin=60, minpix=30, num_windows=9):
+    def __init__(self, margin=60, minpix=30, num_windows=9, ym_per_pix=3. / 72, xm_per_pix=3.7 / 700):
         '''
         :param margin:
         :param minpix: minimum number of pixels found to recenter window
@@ -176,6 +179,8 @@ class Lines:
         self._minpix = minpix
         self._num_windows = num_windows
         self._image_shape = None
+        self._ym_per_pix = ym_per_pix
+        self._xm_per_pix = xm_per_pix
 
     def get_lines(self, binary_image):
         nonzeroy, nonzerox = binary_image.nonzero()
@@ -188,9 +193,18 @@ class Lines:
 
         return y, left_fit, right_fit, nonzeroy, nonzerox, left_indices, right_indices
 
+    def curve_coefficients_in_meters(self):
+        return self._left_coeffs_m, self._right_coeffs_m
+
     def _fit_and_update(self, leftx, lefty, rightx, righty):
         left_coeffs = polyfit(lefty, leftx, 2) if len(leftx) > 0 else self._left_coeffs
         right_coeffs = polyfit(righty, rightx, 2) if len(rightx) > 0 else self._right_coeffs
+
+        left_coeffs_m = polyfit(lefty * self._ym_per_pix, leftx * self._xm_per_pix, 2) \
+            if len(leftx) > 0 else self._left_coeffs_m
+
+        right_coeffs_m = polyfit(righty * self._ym_per_pix, rightx * self._xm_per_pix, 2) \
+            if len(rightx) > 0 else self._right_coeffs_m
 
         y = numpy.linspace(0, self._image_shape[0] - 1, self._image_shape[0])
         left_fit = left_coeffs[0] * y ** 2 + left_coeffs[1] * y + left_coeffs[2]
@@ -199,6 +213,8 @@ class Lines:
         if not hasattr(self, '_left_coeffs'):
             self._left_coeffs = left_coeffs
             self._right_coeffs = right_coeffs
+            self._left_coeffs_m = left_coeffs_m
+            self._right_coeffs_m = right_coeffs_m
             self._start = 0
 
         else:
@@ -213,6 +229,8 @@ class Lines:
                 if right_fit[2] - left_fit[2] > 350:
                     self._left_coeffs += alpha * (left_coeffs - self._left_coeffs)
                     self._right_coeffs += alpha * (right_coeffs - self._right_coeffs)
+                    self._left_coeffs_m += alpha * (left_coeffs_m - self._left_coeffs_m)
+                    self._right_coeffs_m += alpha * (right_coeffs_m - self._right_coeffs_m)
 
         left_fit = self._left_coeffs[0] * y ** 2 + self._left_coeffs[1] * y + self._left_coeffs[2]
         right_fit = self._right_coeffs[0] * y ** 2 + self._right_coeffs[1] * y + self._right_coeffs[2]
@@ -295,6 +313,35 @@ def _draw_polygon(y, left_x, right_x, shape):
     return cv2.fillPoly(color_warp, numpy.int_([pts]), (0, 255, 0))
 
 
+def _draw_lines(warped_binary, y, left_fit, right_fit, nonzeroy, nonzerox, left_indices, right_indices):
+    out = numpy.dstack((warped_binary, warped_binary, warped_binary))
+    out[nonzeroy[left_indices], nonzerox[left_indices]] = [255, 0, 0]
+    out[nonzeroy[right_indices], nonzerox[right_indices]] = [0, 0, 255]
+
+    leftfitx = left_fit.astype(numpy.int32)
+    rightfix = right_fit.astype(numpy.int32)
+    ycoord = y.astype(numpy.int32)
+
+    cv2.polylines(out, array(list(zip(leftfitx, ycoord))).reshape(-1, 1, 2), True, (0, 255, 0), thickness=25)
+    cv2.polylines(out, array(list(zip(rightfix, ycoord))).reshape(-1, 1, 2), True, (0, 255, 0), thickness=25)
+    return out
+
+
+def _put_text(image, left_coeffs_m, right_coeffs_m):
+    ym_per_pix = 3. / 72
+
+    left_curverad = (1 + (2 * left_coeffs_m[0] * 720 * ym_per_pix + left_coeffs_m[1]) ** 2) ** 1.5 / \
+                    numpy.absolute(2 * left_coeffs_m[0])
+
+    right_curverad = (1 + (2 * right_coeffs_m[0] * 720 * ym_per_pix + right_coeffs_m[1]) ** 2) ** 1.5 / \
+                     numpy.absolute(2 * right_coeffs_m[0])
+
+    cv2.putText(image, 'left: {}'.format(left_curverad), position, font, fontScale, fontColor, lineType)
+    cv2.putText(image, 'right: {}'.format(right_curverad), (position[0], position[1] + 40),
+                font, fontScale, fontColor, lineType)
+    return image
+
+
 class Pipeline:
     def __init__(self, model=None, debug=None):
         self.camera_matrix, self.distortion_coefs = get_calibration_results()
@@ -310,20 +357,24 @@ class Pipeline:
             return warped
 
         warped_binary = self._get_thresholded(warped)
+        warped_binary_in_rgb = numpy.dstack((warped_binary, warped_binary, warped_binary)) * 255
+
         if self._debug == 'warped':
-            return numpy.dstack((warped_binary, warped_binary, warped_binary)) * 255
+            return warped_binary_in_rgb
 
         y, left_fit, right_fit, nonzeroy, nonzerox, left_indices, right_indices = self._lines.get_lines(warped_binary)
 
+        lines_drawn = _draw_lines(warped_binary,
+                                  y,
+                                  left_fit,
+                                  right_fit,
+                                  nonzeroy,
+                                  nonzerox,
+                                  left_indices,
+                                  right_indices)
+
         if self._debug == 'lines':
-            return self._draw_lines(warped_binary,
-                                    y,
-                                    left_fit,
-                                    right_fit,
-                                    nonzeroy,
-                                    nonzerox,
-                                    left_indices,
-                                    right_indices)
+            return lines_drawn
 
         polygon_drawn = _draw_polygon(y, left_fit, right_fit, warped_binary.shape)
 
@@ -331,20 +382,12 @@ class Pipeline:
             return polygon_drawn
 
         unwarped_polygon = perspective_transform(polygon_drawn, inverse_perspective_tr_matrix)
-        return cv2.addWeighted(undistorted, 1, unwarped_polygon, 0.5, 0)
+        main_track = cv2.addWeighted(undistorted, 1, unwarped_polygon, 0.5, 0)
+        _put_text(main_track, *self._lines.curve_coefficients_in_meters())
 
-    def _draw_lines(self, warped_binary, y, left_fit, right_fit, nonzeroy, nonzerox, left_indices, right_indices):
-        out = numpy.dstack((warped_binary, warped_binary, warped_binary))
-        out[nonzeroy[left_indices], nonzerox[left_indices]] = [255, 0, 0]
-        out[nonzeroy[right_indices], nonzerox[right_indices]] = [0, 0, 255]
-
-        leftfitx = left_fit.astype(numpy.int32)
-        rightfix = right_fit.astype(numpy.int32)
-        ycoord = y.astype(numpy.int32)
-
-        cv2.polylines(out, array(list(zip(leftfitx, ycoord))).reshape(-1, 1, 2), True, (0, 255, 0), thickness=25)
-        cv2.polylines(out, array(list(zip(rightfix, ycoord))).reshape(-1, 1, 2), True, (0, 255, 0), thickness=25)
-        return out
+        additional = numpy.concatenate((warped, warped_binary_in_rgb, lines_drawn), axis=1)
+        additional = cv2.resize(additional, (1280, 240))
+        return numpy.concatenate((additional, main_track), axis=0)
 
     def _get_thresholded(self, image):
         # yuv = cv2.cvtColor(image, cv2.COLOR_RGB2YUV)
