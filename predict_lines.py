@@ -221,7 +221,7 @@ if __name__ == '__main__':
     model.summary()
 
     input_image_names = glob.glob('line_detection_data/input/*.jpg')
-    output_image_names = glob.glob('line_detection_data/output2/*.jpg')
+    output_image_names = glob.glob('line_detection_data/output/*.jpg')
 
     model_name = 'model4.h5'
 
