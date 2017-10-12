@@ -345,13 +345,13 @@ def _put_text(image, distance_from_center, left_coeffs_m, right_coeffs_m):
 
 class Pipeline:
     def __init__(self, model=None, debug=None):
-        self.camera_matrix, self.distortion_coefs = get_calibration_results()
+        self._camera_matrix, self._distortion_coefs = get_calibration_results()
         self._binary_model = keras.models.load_model(model, custom_objects={'Upsampling': Upsampling})
         self._lines = Lines()
         self._debug = debug
 
     def __call__(self, image, **kwargs):
-        undistorted = undistort(image, self.camera_matrix, self.distortion_coefs, None, None)
+        undistorted = undistort(image, self._camera_matrix, self._distortion_coefs, None, None)
         warped = perspective_transform(undistorted, perspective_tr_matrix)
 
         if self._debug == 'perspective':
