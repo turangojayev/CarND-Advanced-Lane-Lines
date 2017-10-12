@@ -203,12 +203,23 @@ Once we find lines and fill the polygon between them, we can unwarp the image an
 
 ## Pipeline
 
-
+The steps listed above are all gathered together as pieces of class `Pipeline`. Here are the links to the resulting videos
+ 
+ [Project video](https://youtu.be/B3e4ZyqtqTE)
+ 
+ [Challenge video](https://youtu.be/CHDEO_GBlV4)
+ 
+ [Harder challenge video](https://youtu.be/yISj5LafxJU)
 
 ---
 
-### Discussion
+### Discussion and further improvements
 
-#### 1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
+Since I used neural networks for segmentation, thresholding is quite robust against sunlight in harder challenge video. 
+The middle frame at the top of the videos prove this point. However, fitted lines are not perfect and require further improvement. 
+Moreover, when the fitted lines are not robust for several frames in a row, it would be better to drop the coefficients of 
+the polynomials and start fitting from scratch. In current implementation I tried not to complicate this problem by introducing 
+a lot of thresholds and manual checks. One can also use convolutional neural networks to directly predict the polynomial coefficients or
+use recurrent neural networks to consider the context from the previous frames.
 
-Here I'll talk about the approach I took, what techniques I used, what worked and why, where the pipeline might fail and how I might improve it if I were going to pursue this project further.  
+  
