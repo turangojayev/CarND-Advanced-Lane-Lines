@@ -56,13 +56,10 @@ def get_calibration_results(rows=ROWS, columns=COLUMNS):
             object_points.append(per_image_object_points)
             image_points.append(corners)
 
-    # test_image = cv2.imread('test_images/test5.jpg')
     test_image = cv2.cvtColor(cv2.imread(image_paths[2]), cv2.COLOR_BGR2GRAY)
 
     return_value, camera_matrix, distortion_coefs, rotation_vectors, translation_vectors = \
         cv2.calibrateCamera(object_points, image_points, test_image.shape[:2], None, None)
-    # cv2.calibrateCamera(object_points, image_points, test_image.shape[::-1][:2], None, None)
-
 
     return camera_matrix, distortion_coefs
 
@@ -77,16 +74,18 @@ def process_and_save_video(input, output, pipeline):
     white_clip.write_videofile(output, audio=False)
 
 
-def plot(images, columns=3, channel=None, cmap=None, title=None, directory=None):
+def plot(images, columns=3, channel=None, cmap=None, title=None, directory=None, figsize=(15, 18)):
     rows = len(images) / columns
-    subplot = partial(plt.subplot, rows, columns)
-    plt.figure(figsize=(15, 10))
+    fig = plt.figure(figsize=figsize)
+    plt.xticks([])
+    plt.yticks([])
+    fig.subplots_adjust(left=0, right=1, bottom=0, top=1, hspace=0.05, wspace=0.05)
     for i, image in enumerate(images, 1):
-        subplot(i)
-        plt.imshow(image if channel is None else image[:, :, channel], cmap=cmap)
-        plt.xticks([])
-        plt.yticks([])
+        axis = fig.add_subplot(rows, columns, i, xticks=[], yticks=[])
+        axis.imshow(image if channel is None else image[:, :, channel], cmap=cmap)
+
     plt.tight_layout()
+
     if title is not None:
         if directory:
             title = os.path.join(directory, title)
@@ -393,17 +392,6 @@ class Pipeline:
         return numpy.concatenate((additional, main_track), axis=0)
 
     def _get_thresholded(self, image):
-        # yuv = cv2.cvtColor(image, cv2.COLOR_RGB2YUV)
-        # yellow_color = cv2.inRange(yuv[:, :, 1], array([0]), array([115]))
-        # yellow_color[yellow_color != 0] = 1
-        #
-        # hls = cv2.cvtColor(image, cv2.COLOR_RGB2HLS)
-        # white_color = cv2.inRange(hls, array([0, 200, 0]), array([255, 255, 255]))
-        # white_color[white_color != 0] = 1
-        #
-        # out = numpy.zeros_like(white_color)
-        # out[(white_color != 0) | (yellow_color != 0)] = 1
-        # return out
         result = self._binary_model.predict(image.reshape(1, *image.shape)).squeeze() * 255
         result = result.astype(numpy.uint8)
         result = cv2.adaptiveThreshold(result, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 7, 0)
@@ -412,29 +400,5 @@ class Pipeline:
 
 if __name__ == '__main__':
     video_files = ['project_video.mp4', 'harder_challenge_video.mp4', 'challenge_video.mp4']
-    # video_files = ['harder_challenge_video.mp4', 'challenge_video.mp4']
-    # video_files = ['challenge_video.mp4']
     for video in video_files:
         process_and_save_video(video, os.path.join('output_videos', 'cnn-' + video), Pipeline(model='model.h5'))
-        #
-        #
-        # image_names = glob.glob('test_images/straight*')
-        # image_names.extend(glob.glob('test_images/test*'))
-        # images = list(map(lambda x: cv2.cvtColor(cv2.imread(x), cv2.COLOR_BGR2RGB), image_names))
-        # images = [Pipeline(debug='cnn')(image) for image in images]
-        # plot(images, columns=2)
-
-        # trapes = array([[205, 720], [603, 446], [677, 446], [1100, 720]])
-        #
-        # undistorted = undistort(images[6], camera_matrix, distortion_coefs, None, None)
-        # plt.imshow(undistorted)
-        # plt.plot(trapes[:, 0], trapes[:, 1], marker='o')
-        # plt.show()
-        # # plt.imshow(perspective_transform(undistorted))
-        # # plt.imshow(perspective_transform(undistorted))
-        # plt.imshow(cv2.warpPerspective(undistorted, setCurrentImage(undistorted), (columns, rows), flags=cv2.INTER_LINEAR))
-        # # transofmed = perspective_transform(trapes)
-        # # plt.plot(transofmed[:, 0], transofmed[:, 1], marker='o')
-        # plt.show()
-        # images = list(map(lambda x: cv2.imread(x), image_names))
-        # plot(images, columns=4, channel=1, cmap='gray')
