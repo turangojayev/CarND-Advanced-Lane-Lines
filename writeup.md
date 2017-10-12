@@ -152,7 +152,7 @@ Architecture I used is given below:
  ![image7]
  
  As we can see, now the lane lines can be spotted way much better on the difficult images. However, since the sigmoid output might not be
- exactly 1, I also apply adaptive thresholding to the result:
+ exactly 1, I also apply adaptive thresholding (`cv2.adaptiveThreshold(nn_output * 255, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 7, 0) // 255`) to the result:
  
  ![image8_1]
  
@@ -201,11 +201,9 @@ Once we find lines and fill the polygon between them, we can unwarp the image an
 
 ---
 
-### Pipeline (video)
+## Pipeline
 
-#### 1. Provide a link to your final video output.  Your pipeline should perform reasonably well on the entire project video (wobbly lines are ok but no catastrophic failures that would cause the car to drive off the road!).
 
-Here's a [link to my video result](./project_video.mp4)
 
 ---
 
