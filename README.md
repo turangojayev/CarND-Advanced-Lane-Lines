@@ -165,6 +165,29 @@ I use sliding window approach to detect the lines and try to fit a second order 
  by using low-pass filter over all history of found coefficients. It means, I calculate exponentially weighted moving average with update weight of 0.2. The update mechanism is written in 
    [`_fit_and_update`](https://github.com/turangojayev/CarND-Advanced-Lane-Lines/blob/9280aded388ed4769041a3e55baf43f3d0af257d/solution.py#L201) function.
    
+   One point to mentions is the following code piece
+ ```python
+...
+closest_point_difference = right_fit[-1] - left_fit[-1]
+if closest_point_difference > 0:
+    differences = right_fit - left_fit
+    acceptable = differences > 0.7 * closest_point_difference
+    start = numpy.argmax(acceptable)
+    self._start += int(0.1 * (start - self._start))
+    y = y[self._start:]
+    if right_fit[2] - left_fit[2] > 350:
+        self._left_coeffs += self._alpha * (left_coeffs - self._left_coeffs)
+        self._right_coeffs += self._alpha * (right_coeffs - self._right_coeffs)
+        self._left_coeffs_m += self._alpha * (left_coeffs_m - self._left_coeffs_m)
+        self._right_coeffs_m += self._alpha * (right_coeffs_m - self._right_coeffs_m)
+...
+```
+
+The goal of piece is to update the coefficients only if the difference of coefficients of the term with 0th power from right
+and left lines is more than 350 pixels (and of course, right line should be at the right: `if closest_point_difference > 0:`).
+Besides, I try to keep the further end of the lines moving back and forth, depending on how good the fit is. As a check,
+ I use 0.7 portion of the distance between right and left lane lines at the bottom of the image.
+   
   Here's an example of detected lane lines:
   
   ![image9_1]
