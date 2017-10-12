@@ -34,6 +34,8 @@ The goals / steps of this project are the following:
 [image9]: ./output_images/lines_drawn.png
 [image9_1]: ./output_images/lines_drawn_example.png
 
+[image10]: ./output_images/plotted_back.png
+
 
 [video1]: ./project_video.mp4 "Video"
 
@@ -114,8 +116,8 @@ Binary
 
 ![image6]
 
-As we can see, it might be very difficult to come up with thresholds that would work for all the images. Thus, I decided to gather
-data and make pixel wise classification to spot the lane lines. For creating input, I stored the frames from [project_video.mp4](https://github.com/turangojayev/CarND-Advanced-Lane-Lines/blob/master/project_video.mp4)
+As we can see, it might be very difficult to come up with thresholds that would work for all the images. Rather than applying manually picked thresholds, I decided to let 
+convolutional layers apply different gradient operators. Thus, I gathered data and made pixel wise classification to spot the lane lines. For creating input, I stored the frames from [project_video.mp4](https://github.com/turangojayev/CarND-Advanced-Lane-Lines/blob/master/project_video.mp4)
  and as target, I stored the images with binary thresholding strategy applied to the input. I selected this particular video, because
   it was rather easy compared to the others and the defined thresholds worked relatively well on it. Only few images were manually edited to
   remove outliers. The created dataset is located at [line_detection_data](https://github.com/turangojayev/CarND-Advanced-Lane-Lines/tree/master/line_detection_data) and there are 1260 instances.
@@ -150,58 +152,52 @@ Architecture I used is given below:
  ![image7]
  
  As we can see, now the lane lines can be spotted way much better on the difficult images. However, since the sigmoid output might not be
- exactly 1, I also apply adaptive thresholding to the results:
+ exactly 1, I also apply adaptive thresholding to the result:
  
  ![image8_1]
  
- and 
- 
- ![image8]
-#### 3. Describe how (and identify where in your code) you performed a perspective transform and provide an example of a transformed image.
+**Detect lane lines and fit polynomial**
 
-The code for my perspective transform includes a function called `warper()`, which appears in lines 1 through 8 in the file `example.py` (output_images/examples/example.py) (or, for example, in the 3rd code cell of the IPython notebook).  The `warper()` function takes as inputs an image (`img`), as well as source (`src`) and destination (`dst`) points.  I chose the hardcode the source and destination points in the following manner:
+Detection of lines is implemented in class [`Lines`](https://github.com/turangojayev/CarND-Advanced-Lane-Lines/blob/9280aded388ed4769041a3e55baf43f3d0af257d/solution.py#L177).
+Here my goal was to keep the procedure as simple as possible, without tuning thresholds on differences between fit lanes from frame to frame. At first frame of the video
+I use sliding window approach to detect the lines and try to fit a second order polynomial to it. In all the following frames, I look at
+ certain margin around the previously fit curve to spot the lines. Once I fit a new curve to the current image, I update the previous coefficients
+ by using low-pass filter over all history of found coefficients. It means, I calculate exponentially weighted moving average with update weight of 0.2. The update mechanism is written in 
+   [`_fit_and_update`](https://github.com/turangojayev/CarND-Advanced-Lane-Lines/blob/9280aded388ed4769041a3e55baf43f3d0af257d/solution.py#L201) function.
+   
+  Here's an example of detected lane lines:
+  
+  ![image9_1]
+  
+  
+**Radius of the curvature and position of the vehicle**
 
-```python
-src = np.float32(
-    [[(img_size[0] / 2) - 55, img_size[1] / 2 + 100],
-    [((img_size[0] / 6) - 10), img_size[1]],
-    [(img_size[0] * 5 / 6) + 60, img_size[1]],
-    [(img_size[0] / 2 + 55), img_size[1] / 2 + 100]])
-dst = np.float32(
-    [[(img_size[0] / 4), 0],
-    [(img_size[0] / 4), img_size[1]],
-    [(img_size[0] * 3 / 4), img_size[1]],
-    [(img_size[0] * 3 / 4), 0]])
+The curvature of the left and right lines are calculated as
+
+```
+left_curverad = (1 + (2 * left_coeffs_m[0] * 720 * ym_per_pix + left_coeffs_m[1]) ** 2) ** 1.5 / \
+                    numpy.absolute(2 * left_coeffs_m[0])
+
+right_curverad = (1 + (2 * right_coeffs_m[0] * 720 * ym_per_pix + right_coeffs_m[1]) ** 2) ** 1.5 / \
+                     numpy.absolute(2 * right_coeffs_m[0])
 ```
 
-This resulted in the following source and destination points:
+where `left_coeffs_m` and `right_coeffs_m` are coefficients found by fitting a polynomial to the pixel coordinates converted to meters.
+Assuming that camera is located at the center of the image, the distance to the lane center is calculated as
+ 
+```
+((left_fit[-1] + right_fit[-1]) / 2 - columns / 2) * xm_per_pix
+```
 
-| Source        | Destination   | 
-|:-------------:|:-------------:| 
-| 585, 460      | 320, 0        | 
-| 203, 720      | 320, 720      |
-| 1127, 720     | 960, 720      |
-| 695, 460      | 960, 0        |
+where `left_fit[-1]` and `right_fit[-1]` are the x coordinates of the points located at the bottom of the lines fitted to the left and right lanes in pixel coordinates.
+The values for `ym_per_pix` and `xm_per_pix` are `3/72` and  `3.7/700` respectively.
 
-I verified that my perspective transform was working as expected by drawing the `src` and `dst` points onto a test image and its warped counterpart to verify that the lines appear parallel in the warped image.
+**Plot back onto the road**
 
-![alt text][image4]
+Once we find lines and fill the polygon between them, we can unwarp the image and check the result of overall processing.
 
-#### 4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
+![image10]
 
-Then I did some other stuff and fit my lane lines with a 2nd order polynomial kinda like this:
-
-![alt text][image5]
-
-#### 5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
-
-I did this in lines # through # in my code in `my_other_file.py`
-
-#### 6. Provide an example image of your result plotted back down onto the road such that the lane area is identified clearly.
-
-I implemented this step in lines # through # in my code in `yet_another_file.py` in the function `map_lane()`.  Here is an example of my result on a test image:
-
-![alt text][image6]
 
 ---
 
