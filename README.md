@@ -239,7 +239,7 @@ The steps listed above are all gathered together as pieces of class `Pipeline`. 
 ### Discussion and further improvements
 
 Since I used neural networks for segmentation, thresholding is quite robust against sunlight in harder challenge video. 
-The middle frame at the top of the videos prove this point. However, fitted lines are not perfect and require further improvement. 
+The middle frame at the top of the videos proves this point. However, fitted lines are not perfect and require further improvement. 
 Moreover, when the fitted lines are not robust for several frames in a row, it would be better to drop the coefficients of 
 the polynomials and start fitting from scratch. In current implementation I tried not to complicate this problem by introducing 
 a lot of thresholds and manual checks. One can also use convolutional neural networks to directly predict the polynomial coefficients or
