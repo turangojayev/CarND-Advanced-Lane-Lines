@@ -165,7 +165,7 @@ I use sliding window approach to detect the lines and try to fit a second order 
  by using low-pass filter over all history of found coefficients. It means, I calculate exponentially weighted moving average with update weight of 0.2. The update mechanism is written in 
    [`_fit_and_update`](https://github.com/turangojayev/CarND-Advanced-Lane-Lines/blob/9280aded388ed4769041a3e55baf43f3d0af257d/solution.py#L201) function.
    
-   One point to mentions is the following code piece
+   One point to mention is the following code piece
  ```python
 ...
 closest_point_difference = right_fit[-1] - left_fit[-1]
